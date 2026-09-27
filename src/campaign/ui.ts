@@ -16,7 +16,8 @@ import { MapView } from "./view";
 
 const SAVE = "goguryeo-campaign-v1";
 const TERR: Record<string, string> = { plains: "평야", steppe: "초원", hills: "구릉", mountains: "산악", forest: "숲", marsh: "늪(요택)", sea: "바다" };
-const REL: Record<string, string> = { war: "전쟁", peace: "화친", ally: "동맹", vassal: "신하국", overlord: "종주국" };
+/** Relations as seen from our side: "overlord" means we are theirs. */
+const REL: Record<string, string> = { war: "전쟁", peace: "화친", ally: "동맹", vassal: "상국(上國)", overlord: "신하국" };
 const ICON: Record<string, string> = { hcav: "騎", cav: "騎", hbow: "射", spear: "槍", sword: "刀", axe: "斧", bow: "弓", general: "將", ram: "車" };
 
 export function hasSave(): boolean {

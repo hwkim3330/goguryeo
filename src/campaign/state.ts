@@ -232,6 +232,8 @@ export class Game {
       if (c.owner === "goguryeo") c.pop = Math.min(12, c.pop + 1);
     }
     this.armies = this.armies.filter((a) => a.owner !== "sui");
+    const gen: Record<string, string> = { 강이식: "고연수", 을지문덕: "연개소문", 고승: "고혜진" };
+    for (const a of this.armies) if (gen[a.general]) a.general = gen[a.general];
     const t = (city: string, types: string[], general: string) => this.spawnArmy("sui", this.cities.find((c) => c.name === city)!.hex, types, general);
     t("유성", ["suiSpear", "suiSword", "suiBow", "suiCav", "suiCav", "suiSpear"], "이세적");
     t("탁군", ["suiSpear", "suiSpear", "suiSword", "suiBow", "suiCav", "suiCav"], "장량");
