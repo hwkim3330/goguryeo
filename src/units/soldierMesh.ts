@@ -22,8 +22,9 @@ class Builder {
   local: number[] = [];
 
   add(g0: THREE.BufferGeometry, part: number, pivot: [number, number, number], mat: number): this {
+    // Keep the primitives' own (smooth) normals: recomputing after un-indexing faceted everything.
+    if (!g0.attributes.normal) g0.computeVertexNormals();
     const g = g0.index ? g0.toNonIndexed() : g0;
-    g.computeVertexNormals();
     const p = g.attributes.position.array as Float32Array;
     const n = g.attributes.normal.array as Float32Array;
     g.computeBoundingBox();
@@ -172,9 +173,12 @@ function horse(b: Builder, barded: boolean): void {
   }
   b.add(limb([0, 1.45, -0.95], [0, 0.8, -1.12], 0.07, 0.03, 5), P.hTail, [0, 1.45, -0.95], MAT.hair);
   if (barded) {
-    // Lamellar barding: a skirt round the body, the neck guard, the chamfron.
-    b.add(new THREE.CylinderGeometry(0.4, 0.43, 1.75, 14, 1, true, Math.PI * 0.6, Math.PI * 1.8).rotateX(Math.PI / 2).rotateZ(Math.PI).scale(1, 1.05, 1).translate(0, 1.18, -0.02), P.hBody, [0, 0, 0], bm);
-    b.add(limb([0, 1.38, 0.66], [0, 1.9, 1.0], 0.27, 0.17, 10), P.hNeck, nk, bm);
+    // Lamellar barding (마갑): a rounded shell over the body that hangs to the knees, the neck
+    // guard, and a skirt of plates round the chest and haunches.
+    b.add(new THREE.CapsuleGeometry(0.4, 1.02, 6, 14).rotateX(Math.PI / 2).scale(1.02, 1.12, 1).translate(0, 1.22, -0.02), P.hBody, [0, 0, 0], bm);
+    b.add(new THREE.CylinderGeometry(0.42, 0.46, 0.34, 14, 1, true).rotateX(Math.PI / 2).scale(1, 1.25, 1.0).translate(0, 1.0, 0.72), P.hBody, [0, 0, 0], bm);
+    b.add(new THREE.CylinderGeometry(0.42, 0.46, 0.34, 14, 1, true).rotateX(Math.PI / 2).scale(1, 1.25, 1.0).translate(0, 1.0, -0.74), P.hBody, [0, 0, 0], bm);
+    b.add(limb([0, 1.38, 0.66], [0, 1.9, 1.0], 0.28, 0.17, 10), P.hNeck, nk, bm);
   }
 }
 

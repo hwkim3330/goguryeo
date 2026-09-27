@@ -8,6 +8,7 @@
  *
  * Soldiers live in flat typed arrays (thousands of them), found by a spatial hash.
  */
+import { Z_GATE, Z_OUT, Z_RAMP, Z_WALL } from "../world/fort";
 import type { Field } from "../world/terrain";
 import { TYPES, type UnitType } from "./units";
 
@@ -73,9 +74,15 @@ export interface BattleEvents {
   /** Men who got away off the map on a scripted march (the Sui crossing north). */
   escaped: number;
   escapedUnits: string[];
+  /** Siege: the gate gave way / a man first got onto the wall. */
+  gateBroken: boolean;
+  walls: number;
 }
 
 const HASH = 4;
+/** Seconds up a ladder with nobody pushing it off. */
+const CLIMB = 9;
+const fract = (v: number) => v - Math.floor(v);
 
 export class Battle {
   readonly units: Unit[] = [];
@@ -100,11 +107,16 @@ export class Battle {
   flash!: Float32Array;
   seed!: Float32Array;
   chargeHit!: Uint8Array;
+  /** Siege ladders: seconds spent climbing. */
+  climb!: Float32Array;
   readonly arrows: Arrow[] = [];
   private grid = new Map<number, number[]>();
   time = 0;
-  readonly ev: BattleEvents = { clash: 0, deaths: 0, volleys: 0, charges: 0, routs: [], rallies: [], escaped: 0, escapedUnits: [] };
+  readonly ev: BattleEvents = { clash: 0, deaths: 0, volleys: 0, charges: 0, routs: [], rallies: [], escaped: 0, escapedUnits: [], gateBroken: false, walls: 0 };
   result: 0 | 1 | -1 = -1;
+  /** Which way each side runs when it breaks: away from where the enemy started. */
+  private home: [number, number][] | null = null;
+  private startMen = [0, 0];
   private R = 1234567;
 
   constructor(readonly field: Field) {}
@@ -141,11 +153,13 @@ export class Battle {
     this.flash = grow(this.flash, Float32Array);
     this.seed = grow(this.seed, Float32Array);
     this.chargeHit = grow(this.chargeHit, Uint8Array);
+    this.climb = grow(this.climb, Float32Array);
     this.cap = cap;
   }
 
-  addUnit(typeId: string, side: 0 | 1, team: number, x: number, z: number, face: number, name?: string): Unit {
-    const t = TYPES[typeId];
+  addUnit(typeId: string, side: 0 | 1, team: number, x: number, z: number, face: number, name?: string, opts: { men?: number; type?: UnitType; files?: number } = {}): Unit {
+    const t = opts.type ?? TYPES[typeId];
+    const men = Math.max(1, Math.round(opts.men ?? t.men));
     const u: Unit = {
       id: this.units.length,
       side,
@@ -156,7 +170,7 @@ export class Battle {
       x,
       z,
       face,
-      files: t.files,
+      files: opts.files ?? (men < t.men ? Math.max(4, Math.round(t.files * Math.sqrt(men / t.men))) : t.files),
       order: { k: "hold" },
       state: "ready",
       morale: t.morale,
@@ -169,19 +183,19 @@ export class Battle {
       charged: 0,
       volleyT: 1 + Math.random() * 2,
       kills: 0,
-      start: t.men,
+      start: men,
       aiT: 0,
       aiTarget: -1,
       selected: false,
       rallied: 0,
     };
-    this.alloc(t.men);
-    for (let s = 0; s < t.men; s++) {
+    this.alloc(men);
+    for (let s = 0; s < men; s++) {
       const i = this.n++;
-      const [sx, sz] = this.slotPos(u, s, x, z, face, t.files);
+      const [sx, sz] = this.slotPos(u, s, x, z, face, u.files);
       this.x[i] = sx + (this.rand() - 0.5) * 0.4;
       this.z[i] = sz + (this.rand() - 0.5) * 0.4;
-      this.y[i] = this.field.height(this.x[i], this.z[i]);
+      this.y[i] = this.field.stand(this.x[i], this.z[i]);
       this.dir[i] = face;
       this.hp[i] = t.hp;
       this.unit[i] = u.id;
@@ -273,6 +287,27 @@ export class Battle {
   // ------------------------------------------------------------------ step
 
   step(dt: number): void {
+    if (!this.home) {
+      const c = [0, 1].map((s) => {
+        let x = 0;
+        let z = 0;
+        let n = 0;
+        for (const u of this.units)
+          if (u.side === s) {
+            x += u.x * u.men.length;
+            z += u.z * u.men.length;
+            n += u.men.length;
+          }
+        this.startMen[s] = n;
+        return [x / (n || 1), z / (n || 1)];
+      });
+      this.home = [0, 1].map((s) => {
+        const dx = c[s][0] - c[1 - s][0];
+        const dz = c[s][1] - c[1 - s][1];
+        const l = Math.hypot(dx, dz) || 1;
+        return [dx / l, dz / l] as [number, number];
+      });
+    }
     this.time += dt;
     this.rebuildGrid();
     for (const u of this.units) this.unitThink(u, dt);
@@ -421,7 +456,8 @@ export class Battle {
       const [tx, tz, n] = this.centre(t);
       if (!n) continue;
       const d = Math.hypot(tx - cx, tz - cz);
-      if (d > u.type.range) continue;
+      const lift = Math.max(0, Math.min(0.35, (this.field.stand(cx, cz) - this.field.stand(tx, tz)) / 30));
+      if (d > u.type.range * (1 + lift)) continue;
       // Don't shoot into a melee where our own men are.
       let ours = 0;
       this.near(tx, tz, 8, (j) => {
@@ -453,7 +489,7 @@ export class Battle {
       const lead = 1.6;
       const tx = this.x[aim] + this.vx[aim] * lead + (this.rand() - 0.5) * 7;
       const tz = this.z[aim] + this.vz[aim] * lead + (this.rand() - 0.5) * 7;
-      const ty = this.field.height(tx, tz) + 1;
+      const ty = this.field.stand(tx, tz) + 1;
       const dx = tx - sx;
       const dz = tz - sz;
       const d = Math.hypot(dx, dz);
@@ -477,7 +513,15 @@ export class Battle {
       a.x += a.vx * dt;
       a.y += a.vy * dt;
       a.z += a.vz * dt;
-      const gy = this.field.height(a.x, a.z);
+      const fort = this.field.fort;
+      if (fort) {
+        const zn = fort.zoneAt(a.x, a.z);
+        if ((zn === Z_WALL || (zn === Z_GATE && !fort.gatePassable)) && a.y < fort.wallTop(a.x, a.z) - 0.2) {
+          a.stuck = 4;
+          continue;
+        }
+      }
+      const gy = fort ? this.field.stand(a.x, a.z) : this.field.height(a.x, a.z);
       if (a.y <= gy + 1.7 && a.vy < 0) {
         // Near a man at the height of a man: roll to hit.
         let hit = -1;
@@ -489,7 +533,10 @@ export class Battle {
           const t = tu.type;
           // Shields facing the arrow block it.
           const facing = Math.cos(this.dir[hit] - Math.atan2(-a.vx, -a.vz));
-          const shield = (t.kit === "sword" || t.kit === "axe") && facing > 0.3 ? 0.55 : 0;
+          let shield = (t.kit === "sword" || t.kit === "axe") && facing > 0.3 ? 0.55 : 0;
+          // Behind the parapet (여장) or under a ram's roof.
+          if (fort && tu.side === fort.spec.side && fort.zoneAt(this.x[hit], this.z[hit]) === Z_WALL) shield = 1 - (1 - shield) * 0.4;
+          if (t.role === "ram") shield = 0.85;
           if (this.rand() > shield) this.hurt(hit, Math.max(1, a.dmg - t.armour * 0.55) * (0.6 + this.rand() * 0.8), this.units[a.unit]);
           a.stuck = 0.01;
         } else if (a.y <= gy) {
@@ -519,6 +566,7 @@ export class Battle {
 
   private moveSoldiers(dt: number): void {
     const f = this.field;
+    const fort = f.fort;
     for (const u of this.units) {
       if (u.state === "gone") continue;
       const t = u.type;
@@ -534,12 +582,14 @@ export class Battle {
         const s = slotN++;
         // Target: keep the one we have if still close, else look for the nearest foe.
         let tgt = this.target[i];
-        if (tgt >= 0 && (!this.alive[tgt] || dist2(this, i, tgt) > (reach + 3) ** 2)) tgt = -1;
-        const engageR = routing ? 0 : u.type.range > 0 && !t.mounted ? 4 : 9;
+        const yi = this.y[i];
+        if (tgt >= 0 && (!this.alive[tgt] || dist2(this, i, tgt) > (reach + 3) ** 2 || Math.abs(this.y[tgt] - yi) > 2.6)) tgt = -1;
+        const climbing = this.climb[i] > 0;
+        const engageR = routing || climbing ? 0 : u.type.range > 0 && !t.mounted ? 4 : 9;
         if (tgt < 0 && engageR > 0 && (this.cool[i] <= 0 || u.state === "fighting" || u.order.k === "attack")) {
           let bd = engageR * engageR;
           this.near(this.x[i], this.z[i], engageR, (j, d2) => {
-            if (d2 < bd && this.units[this.unit[j]].side !== u.side) {
+            if (d2 < bd && this.units[this.unit[j]].side !== u.side && Math.abs(this.y[j] - yi) < 2.6) {
               bd = d2;
               tgt = j;
             }
@@ -548,11 +598,15 @@ export class Battle {
         this.target[i] = tgt;
         let gx: number;
         let gz: number;
-        if (routing) {
+        if (routing && fort && u.side === fort.spec.side && fort.within(this.x[i], this.z[i])) {
+          // Nowhere to run inside the walls: huddle toward the middle.
+          gx = fort.cx + (this.seed[i] - 0.5) * 60;
+          gz = fort.cz + (fract(this.seed[i] * 7.7) - 0.5) * 60;
+        } else if (routing) {
           // Away from the nearest enemies, toward our own map edge.
-          const away = u.side === 0 ? 1 : -1;
-          gx = this.x[i] + (this.x[i] - cx) * 0.1;
-          gz = this.z[i] + away * 30;
+          const [hx, hz] = this.home ? this.home[u.side] : [0, u.side === 0 ? 1 : -1];
+          gx = this.x[i] + hx * 30 + (this.x[i] - cx) * 0.1;
+          gz = this.z[i] + hz * 30;
         } else if (tgt >= 0) {
           gx = this.x[tgt];
           gz = this.z[tgt];
@@ -577,7 +631,9 @@ export class Battle {
         let slow = 1;
         if (s0.wet > 0.2) slow *= t.mounted ? 0.55 : 0.4;
         if (f.isForest(this.x[i], this.z[i])) slow *= t.mounted ? 0.45 : 0.75;
-        const ahead = f.height(this.x[i] + (dx / (d || 1)) * 2, this.z[i] + (dz / (d || 1)) * 2) - s0.y;
+        const here = fort ? f.stand(this.x[i], this.z[i]) : s0.y;
+        const aheadY = f.stand(this.x[i] + (dx / (d || 1)) * 2, this.z[i] + (dz / (d || 1)) * 2);
+        const ahead = fort && aheadY - here > 4 ? 0 : aheadY - here;
         if (ahead > 0) slow *= Math.max(0.35, 1 - ahead * 0.35);
         want *= slow;
         if (d > 1e-3) {
@@ -620,14 +676,15 @@ export class Battle {
           this.ev.charges++;
         }
         if (sp < t.walk * 0.5) this.chargeHit[i] = 0;
+        const ox = this.x[i];
+        const oz = this.z[i];
         this.x[i] += this.vx[i] * dt;
         this.z[i] += this.vz[i] * dt;
         const e = f.spec.size / 2 - 2;
         this.x[i] = Math.max(-e, Math.min(e, this.x[i]));
         this.z[i] = Math.max(-e, Math.min(e, this.z[i]));
-        const s1 = f.surface(this.x[i], this.z[i]);
-        // Wading: soldiers sink into the river.
-        this.y[i] = s1.y + (s1.wet > 0 ? Math.max(0, s1.wet - (t.mounted ? 0.4 : 0.9)) * 0 : 0);
+        if (fort) this.fortStep(i, u, ox, oz, dx, dz, dt);
+        this.y[i] = this.climb[i] > 0 ? this.climbY(i) : f.stand(this.x[i], this.z[i]);
         // Facing: the enemy while fighting, else where we're going, else the formation's.
         const faceTo = tgt >= 0 ? Math.atan2(this.x[tgt] - this.x[i], this.z[tgt] - this.z[i]) : sp > 0.4 ? Math.atan2(this.vx[i], this.vz[i]) : u.face;
         let df = faceTo - this.dir[i];
@@ -640,6 +697,99 @@ export class Battle {
         }
       }
     }
+  }
+
+  /**
+   * Walls. A step that would cross from one zone to another the rules don't allow is undone
+   * (sliding along the wall if it can). Attacking foot soldiers stopped at the wall's foot put
+   * up ladders and climb; stopped at a shut gate they batter it (rams far harder).
+   */
+  private fortStep(i: number, u: Unit, ox: number, oz: number, dx: number, dz: number, dt: number): void {
+    const fort = this.field.fort!;
+    const a = fort.zoneAt(ox, oz);
+    let b = fort.zoneAt(this.x[i], this.z[i]);
+    if (fort.pass(a, b, u.side)) {
+      if (this.climb[i] > 0) this.climb[i] = Math.max(0, this.climb[i] - dt * 2);
+      if (a === Z_OUT && b === Z_RAMP && u.side !== fort.spec.side) this.ev.walls++;
+      return;
+    }
+    const nx = this.x[i];
+    const nz = this.z[i];
+    // Slide: keep one component of the step if that one is allowed.
+    this.x[i] = nx;
+    this.z[i] = oz;
+    b = fort.zoneAt(nx, oz);
+    if (!fort.pass(a, b, u.side)) {
+      this.x[i] = ox;
+      this.z[i] = nz;
+      b = fort.zoneAt(ox, nz);
+      if (!fort.pass(a, b, u.side)) {
+        this.x[i] = ox;
+        this.z[i] = oz;
+        b = fort.zoneAt(nx, nz);
+      }
+    }
+    const blockedBy = fort.zoneAt(nx, nz);
+    const attacker = u.side !== fort.spec.side;
+    if (!attacker || this.target[i] >= 0) return;
+    const t = u.type;
+    if (blockedBy === Z_GATE && !fort.gatePassable) {
+      // Batter the gate.
+      this.cool[i] -= dt;
+      if (this.cool[i] <= 0) {
+        this.cool[i] = t.rate;
+        this.action[i] = 0.01;
+        fort.gateHp -= t.attack * t.rate * (t.role === "ram" ? 1.6 : 0.09);
+        if (fort.gateHp <= 0 && !this.ev.gateBroken) this.ev.gateBroken = true;
+      }
+      return;
+    }
+    if (blockedBy === Z_WALL && a === Z_OUT && !t.mounted && t.role !== "ram" && t.range === 0) {
+      // Ladders: the more defenders on the wall above, the longer it takes to get a foot up.
+      let above = 0;
+      this.near(nx, nz, 7, (j) => {
+        if (this.units[this.unit[j]].side === fort.spec.side && this.y[j] > this.y[i] + 4) above++;
+      });
+      this.climb[i] += dt / (1 + above * 0.35);
+      this.target[i] = -1;
+      if (this.climb[i] >= CLIMB) {
+        // Over the top: onto the wall walk.
+        for (let s = 1; s <= 10; s++) {
+          const px = ox + dx * s;
+          const pz = oz + dz * s;
+          if (fort.zoneAt(px, pz) === Z_WALL) {
+            this.x[i] = px + dx * 1.5;
+            this.z[i] = pz + dz * 1.5;
+            if (fort.zoneAt(this.x[i], this.z[i]) !== Z_WALL) {
+              this.x[i] = px;
+              this.z[i] = pz;
+            }
+            break;
+          }
+        }
+        this.climb[i] = 0;
+        this.ev.walls++;
+      }
+      this.vx[i] *= 0.2;
+      this.vz[i] *= 0.2;
+    }
+  }
+
+  /** Halfway up a ladder. */
+  private climbY(i: number): number {
+    const f = this.field;
+    const fort = f.fort!;
+    const g = f.height(this.x[i], this.z[i]);
+    const k = Math.min(1, this.climb[i] / CLIMB);
+    const tx = this.x[i] + Math.sin(this.dir[i]) * 2.5;
+    const tz = this.z[i] + Math.cos(this.dir[i]) * 2.5;
+    const top = fort.zoneAt(tx, tz) === Z_WALL ? fort.wallTop(tx, tz) : g + fort.spec.height;
+    return g + (top - 1.2 - g) * k;
+  }
+
+  /** How high a man stands (for UI and effects). */
+  standY(x: number, z: number): number {
+    return this.field.stand(x, z);
   }
 
   private strike(i: number, j: number, u: Unit): void {
@@ -664,8 +814,20 @@ export class Battle {
   }
 
   private checkEnd(): void {
-    if (this.result >= 0) return;
-    const fighting = (s: 0 | 1) => this.units.some((u) => u.side === s && u.state !== "gone" && u.state !== "routing");
+    if (this.result >= 0 || !this.home) return;
+    const fort = this.field.fort;
+    if (fort && this.time > fort.spec.hold) {
+      this.result = fort.spec.side;
+      return;
+    }
+    // A side is beaten when what still stands is a remnant of what took the field.
+    const fighting = (s: 0 | 1) => {
+      let n = 0;
+      for (const u of this.units) if (u.side === s && u.state !== "gone" && u.state !== "routing") n += this.livingMen(u);
+      // An assault on walls is called off sooner than a fight in the open.
+      const k = fort && fort.spec.side !== s ? 0.16 : 0.06;
+      return n > this.startMen[s] * k;
+    };
     if (!fighting(1)) this.result = 0;
     else if (!fighting(0)) this.result = 1;
   }

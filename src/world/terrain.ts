@@ -7,6 +7,7 @@
  * water shades by depth with a fresnel sky, moving ripples and shore foam; trees are instanced.
  */
 import * as THREE from "three";
+import { Fort, type FortSpec } from "./fort";
 import { GLSL_NOISE, Noise, rng } from "./noise";
 
 export interface FieldSpec {
@@ -19,6 +20,8 @@ export interface FieldSpec {
   forest: number;
   /** Raise or lower a region: [x, z, radius, height]. */
   bumps?: [number, number, number, number][];
+  /** A walled fortress; its ground is levelled a little so the walls sit well. */
+  fort?: FortSpec;
 }
 
 export class Field {
@@ -29,6 +32,7 @@ export class Field {
   readonly waterLevel: number;
   readonly hasWater: boolean;
   readonly forest: Float32Array;
+  readonly fort: Fort | null = null;
   private readonly noise: Noise;
 
   constructor(readonly spec: FieldSpec) {
@@ -67,6 +71,46 @@ export class Field {
     if (spec.river) this.carveRiver(spec.river);
     for (const road of spec.roads ?? []) this.paintRoad(road);
     this.finishSplat();
+    if (spec.fort) {
+      this.fort = new Fort(spec.fort, this);
+      if (spec.fort.mound) {
+        const [bx, bz, r, bh] = spec.fort.mound;
+        for (let j = 0; j < N; j++)
+          for (let i = 0; i < N; i++) {
+            const x = (i / (N - 1) - 0.5) * S;
+            const z = (j / (N - 1) - 0.5) * S;
+            const d = Math.hypot(x - bx, z - bz) / r;
+            // A flat-topped heap of rammed earth.
+            if (d < 1) {
+              const k = j * N + i;
+              this.heights[k] = Math.max(this.heights[k], this.heights[k] * 0.3 + (this.heights[k] * 0.7 + bh) * Math.min(1, (1 - d) * 2.2));
+              this.splat[k * 4 + 2] = Math.max(this.splat[k * 4 + 2], 170);
+              this.splat[k * 4 + 1] = 0;
+            }
+          }
+        this.fort.markRamps();
+      }
+      // No forest inside the walls or right under them.
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++) {
+          const x = (i / (N - 1) - 0.5) * S;
+          const z = (j / (N - 1) - 0.5) * S;
+          const zn = this.fort.zoneAt(x, z);
+          const k = j * N + i;
+          if (zn !== 0 || this.nearFort(x, z)) this.splat[k * 4 + 1] = 0;
+          if (zn === 2) this.splat[k * 4] = Math.max(this.splat[k * 4], Math.round(90 * Math.max(0, this.noise.fbm(x / 30, z / 30, 3) + 0.2)));
+        }
+    }
+  }
+
+  private nearFort(x: number, z: number): boolean {
+    const f = this.fort!;
+    return x > f.x0 - 30 && z > f.z0 - 30 && x < f.x0 + f.nx + 30 && z < f.z0 + f.nz + 30 && Math.hypot(x - f.cx, z - f.cz) < Math.max(f.nx, f.nz) * 0.62 + 30;
+  }
+
+  /** Where a man stands: on the wall walk if he's on the wall, else on the ground. */
+  stand(x: number, z: number): number {
+    return this.fort ? this.fort.stand(x, z) : this.height(x, z);
   }
 
   private idx(x: number, z: number): [number, number] {

@@ -13,6 +13,7 @@ import { Ai } from "./sim/ai";
 import { Battle, type Unit } from "./sim/battle";
 import { ArmyView } from "./units/armyView";
 import { Dust, Standards } from "./units/effects";
+import { FortView } from "./world/fortMesh";
 import { Field, forest, grassMesh, groundMesh, waterMesh, type WorldUniforms } from "./world/terrain";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -26,6 +27,7 @@ let army: ArmyView | null = null;
 let ai: Ai | null = null;
 let dust: Dust | null = null;
 let standards: Standards | null = null;
+let fortView: FortView | null = null;
 let U: WorldUniforms | null = null;
 let scen: Scenario | null = null;
 let speed = 0;
@@ -52,6 +54,7 @@ ui.innerHTML = `
   <div id="top"><div id="tname"></div><div id="bal"><i id="balA"></i><i id="balB"></i><span id="clock">0:00</span></div>
     <div class="spd"><button data-s="0">Ⅱ</button><button data-s="1">▶</button><button data-s="2">▶▶</button><button data-s="3">▶▶▶</button><button id="snd">🔊</button><button id="quit">✕</button></div></div>
   <div id="log"></div>
+  <div id="siege" class="off"><div class="lbl">성문</div><div class="bar"><i id="gateHp"></i></div><div id="siegeT"></div><button id="gateBtn">성문 열기 <kbd>G</kbd></button></div>
   <div id="orders" class="off"><button id="oRun">달리기 <kbd>R</kbd></button><button id="oHalt">정지 <kbd>⌫</kbd></button><button id="oFire">자유 사격 <kbd>F</kbd></button><button id="oWide">넓게</button><button id="oDeep">좁게</button></div>
   <div id="cards"></div>
   <div id="box"></div>
@@ -148,6 +151,12 @@ function load(s: Scenario): void {
   stage.world.add(dust.points);
   standards = new Standards(battle);
   stage.world.add(standards.group);
+  fortView = field.fort ? new FortView(field.fort, battle) : null;
+  if (fortView) stage.world.add(fortView.group);
+  $("siege").classList.toggle("off", !field.fort);
+  $("gateBtn").style.display = field.fort && field.fort.spec.side === 0 ? "" : "none";
+  gateSeen = false;
+  wallsSeen = 0;
   ai = new Ai(battle, 1);
   Object.assign(cam, s.cam);
   over = false;
@@ -166,7 +175,17 @@ function selected(): Unit[] {
   return mine().filter((u) => u.selected && u.state !== "gone");
 }
 
-const ICON: Record<string, string> = { hcav: "騎", cav: "騎", hbow: "射", spear: "槍", sword: "刀", axe: "斧", bow: "弓", general: "將" };
+const ICON: Record<string, string> = { hcav: "騎", cav: "騎", hbow: "射", spear: "槍", sword: "刀", axe: "斧", bow: "弓", general: "將", ram: "車" };
+let gateSeen = false;
+let wallsSeen = 0;
+function toggleGate(): void {
+  const f = field?.fort;
+  if (!f || f.spec.side !== 0 || f.gateHp <= 0) return;
+  f.gateOpen = !f.gateOpen;
+  $("gateBtn").innerHTML = `${f.gateOpen ? "성문 닫기" : "성문 열기"} <kbd>G</kbd>`;
+  log(f.gateOpen ? "성문을 연다! 출격하라." : "성문을 닫는다.", "gold");
+}
+$("gateBtn").onclick = () => toggleGate();
 function buildCards(): void {
   $("cards").innerHTML = mine()
     .map((u) => `<div class="card" data-u="${u.id}"><div class="ic">${ICON[u.type.role]}</div><div class="nm">${u.name}</div><div class="mn"></div><div class="mo"><i></i></div><div class="st"></div></div>`)
@@ -443,6 +462,7 @@ window.addEventListener("keydown", (e) => {
     setSpeed(speed ? 0 : 1);
   }
   if (e.code === "KeyR") $("oRun").click();
+  if (e.code === "KeyG") toggleGate();
   if (e.code === "KeyF") $("oFire").click();
   if (e.code === "Backspace") halt();
   if (e.code === "KeyA" && (e.ctrlKey || e.metaKey)) {
@@ -517,6 +537,7 @@ function frame(now: number): void {
     army.update(camPos);
     dust?.update(dt * Math.max(0.3, started ? speed : 0.3), camPos);
     standards?.update(t);
+    fortView?.update();
     // Sound: how much fighting is near the camera.
     const ev = battle.ev;
     let melee = 0;
@@ -540,6 +561,27 @@ function frame(now: number): void {
     }
     while (ralliesSeen < ev.rallies.length) log(`${ev.rallies[ralliesSeen++]}이(가) 다시 대오를 갖춘다`, "");
     if (ev.deaths - lastDeaths > 0) lastDeaths = ev.deaths;
+    const fort = field.fort;
+    if (fort && started) {
+      if (ev.gateBroken && !gateSeen) {
+        gateSeen = true;
+        log("성문이 부서졌다!", fort.spec.side === 0 ? "bad" : "gold");
+        audio.horn();
+        $("gateBtn").style.display = "none";
+      }
+      if (ev.walls > 0 && wallsSeen === 0) {
+        log(fort.spec.side === 0 ? "적이 성벽 위로 올라섰다!" : "아군이 성벽에 올랐다!", fort.spec.side === 0 ? "bad" : "gold");
+        wallsSeen = ev.walls;
+      } else if (ev.walls >= wallsSeen + 30) {
+        log(fort.spec.side === 0 ? `성벽 위에 적이 늘어난다 (${ev.walls}명)` : `성벽 위로 아군이 쏟아진다 (${ev.walls}명)`, "");
+        wallsSeen = ev.walls;
+      }
+      const g = Math.max(0, fort.gateHp / fort.gateMax);
+      ($("gateHp") as HTMLElement).style.width = `${g * 100}%`;
+      ($("gateHp") as HTMLElement).style.background = g > 0.5 ? "#c8a060" : g > 0.2 ? "#e08030" : "#e03a2a";
+      const left = Math.max(0, fort.spec.hold - battle.time);
+      $("siegeT").textContent = `해 질 때까지 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}`;
+    }
     // HUD.
     if (started) {
       updateCards();
@@ -580,10 +622,11 @@ function finish(): void {
   $("estats").innerHTML = `
     <table><tr><th></th><th>출전</th><th>생존</th><th>전사</th></tr>
     <tr><td>고구려</td><td>${a0}</td><td>${a1}</td><td>${a0 - a1}</td></tr>
-    <tr><td>${scen?.id === "yodong" ? "당" : "수"}</td><td>${e0}</td><td>${e1}</td><td>${e0 - e1}</td></tr></table>
+    <tr><td>${scen?.id === "salsu" ? "수" : "당"}</td><td>${e0}</td><td>${e1}</td><td>${e0 - e1}</td></tr></table>
     ${b.ev.escaped ? `<p>강을 건너 달아난 적: <b>${b.ev.escaped}명</b> (${b.ev.escapedUnits.join(", ")})</p>` : ""}
     <p>전투 시간 ${Math.floor(b.time / 60)}분 ${Math.floor(b.time % 60)}초 · 가장 많이 벤 부대: <b>${best?.name ?? "-"}</b> (${best?.kills ?? 0})</p>
-    <p class="fine">${win ? "적이 흩어져 달아난다. 고구려의 이름이 요동에 울려 퍼진다." : "후퇴의 북이 울린다. 다음 싸움을 기약한다."}</p>`;
+    ${b.field.fort ? `<p>성문: ${b.field.fort.gateHp > 0 ? "버텼다" : "부서졌다"} · 성벽에 오른 적: ${b.ev.walls}명</p>` : ""}
+    <p class="fine">${win ? (b.field.fort && b.time >= b.field.fort.spec.hold ? "해가 진다. 당군이 진채로 물러난다. 안시성은 끝내 함락되지 않았다." : "적이 흩어져 달아난다. 고구려의 이름이 요동에 울려 퍼진다.") : "후퇴의 북이 울린다. 다음 싸움을 기약한다."}</p>`;
 }
 
 declare global {

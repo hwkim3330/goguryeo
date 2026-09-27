@@ -20,6 +20,34 @@ export interface Scenario {
 const N = 0; // facing +z (south)
 const S = Math.PI; // facing -z (north)
 
+/** 안시성's ring: an irregular oval on the hill, the gate facing south. */
+function ansiRing(): [number, number][] {
+  const pts: [number, number][] = [];
+  const n = 30;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = 205 + Math.sin(a * 3 + 0.7) * 22 + Math.sin(a * 5 + 2.1) * 10;
+    pts.push([Math.sin(a) * r * 1.12, -60 + Math.cos(a) * r * 0.9]);
+  }
+  return pts;
+}
+const ANSI = ansiRing();
+/** A point on the ring between vertex i and i+1 (t along), pushed out by `out`. */
+function onWall(i: number, t: number, out: number): [number, number, number] {
+  const [ax, az] = ANSI[i % ANSI.length];
+  const [bx, bz] = ANSI[(i + 1) % ANSI.length];
+  const x = ax + (bx - ax) * t;
+  const z = az + (bz - az) * t;
+  const l = Math.hypot(bx - ax, bz - az);
+  let nx = (bz - az) / l;
+  let nz = -(bx - ax) / l;
+  if (nx * x + nz * (z + 60) < 0) {
+    nx = -nx;
+    nz = -nz;
+  }
+  return [x + nx * out, z + nz * out, Math.atan2(nx, nz)];
+}
+
 export const SCENARIOS: Scenario[] = [
   {
     id: "salsu",
@@ -148,5 +176,89 @@ export const SCENARIOS: Scenario[] = [
       b.addUnit("axe", 0, 0, 0, 280, S, "부월수");
     },
     cam: { x: 0, z: 330, dist: 380, yaw: 0, pitch: 0.6 },
+  },
+  {
+    id: "ansi",
+    year: "645년 가을",
+    title: "안시성 공방전",
+    sub: "安市城 · 양만춘과 당 태종",
+    story: [
+      "요동성과 백암성이 무너졌다. 당 태종의 대군이 안시성을 에워싼 지 두 달.",
+      "당군은 성보다 높은 토산(土山)을 쌓아 성벽 동남쪽에 붙였다. 충차가 성문을 두드린다.",
+      "성주 양만춘은 물러서지 않는다. 해가 질 때까지 성을 지켜라. 겨울이 오면 저들은 돌아간다.",
+    ],
+    goal: "해가 질 때까지(15분) 성을 지키십시오. 궁수는 성벽 위에서 더 멀리 쏘고, 여장 뒤에서 화살을 덜 맞습니다. 사다리로 올라오는 적은 성벽 위에서 떨어뜨리고, 토산을 빼앗기지 마십시오. 성문(G)을 열면 기병으로 역습할 수 있습니다.",
+    field: {
+      seed: 645,
+      size: 1600,
+      hills: 0.6,
+      forest: 0.5,
+      bumps: [
+        [0, -80, 520, 48],
+        [-420, -520, 300, 40],
+        [420, -560, 280, 36],
+      ],
+      roads: [
+        [
+          [0, 800],
+          [20, 420],
+          [onWall(0, 0.5, 0)[0], onWall(0, 0.5, 0)[1]],
+        ],
+      ],
+      fort: {
+        ring: ANSI,
+        gate: 0,
+        height: 9,
+        thick: 7,
+        side: 0,
+        hold: 900,
+        // The mound against the south-east wall.
+        mound: [onWall(4, 0.5, 24)[0], onWall(4, 0.5, 24)[1], 46, 12],
+      },
+    },
+    look: { sunElev: 26, sunAz: 250, turbidity: 3.5, rayleigh: 1.3, fog: 0.00022, exposure: 0.95 },
+    setup(b) {
+      // 고구려: archers along the south walls, foot inside, horse behind the gate.
+      b.addUnit("general", 0, 0, 0, -120, N, "양만춘");
+      for (const [i, name] of [
+        [29, "맥궁 궁수 제1대"],
+        [1, "맥궁 궁수 제2대"],
+        [3, "맥궁 궁수 제3대"],
+        [26, "맥궁 궁수 제4대"],
+      ] as [number, string][]) {
+        const [x, z, face] = onWall(i, 0.5, 2.2);
+        const u = b.addUnit("maekgung", 0, 0, x, z, face, name);
+        u.files = 40;
+        b.order(u, { k: "move", x, z, face, files: 40, run: false });
+      }
+      const [mx, mz, mface] = onWall(4, 0.5, -16);
+      b.addUnit("spear", 0, 0, mx, mz, mface, "토산 수비대");
+      const [gx, gz] = onWall(0, 0.5, -40);
+      b.addUnit("sword", 0, 0, gx - 50, gz, N, "환도수 제1대");
+      b.addUnit("sword", 0, 0, gx + 50, gz, N, "환도수 제2대");
+      b.addUnit("axe", 0, 0, gx, gz - 30, N, "부월수");
+      b.addUnit("spear", 0, 0, gx - 90, gz - 60, N, "창수");
+      b.addUnit("gaema", 0, 0, gx + 10, gz - 90, N, "개마무사");
+      // 당: the whole army before the south face, rams at the gate, a column at the mound.
+      const tang: [string, number, number, string?][] = [
+        ["suiRam", 0, 330, "충차 제1대"],
+        ["suiRam", 40, 350, "충차 제2대"],
+        ["suiSword", -170, 340],
+        ["suiSword", 170, 340],
+        ["suiSpear", -300, 380],
+        ["suiSpear", 300, 360],
+        ["suiSword", -60, 420],
+        ["suiSword", 90, 420],
+        ["suiSpear", 260, 250],
+        ["suiBow", -120, 300],
+        ["suiBow", 120, 300],
+        ["suiBow", 330, 190],
+        ["suiCav", -420, 420],
+        ["suiCav", 420, 420],
+        ["suiGeneral", 0, 520, "당 태종 이세민"],
+      ];
+      for (const [t, x, z, name] of tang) b.addUnit(t, 1, 2, x, z, S, name);
+    },
+    cam: { x: 40, z: 120, dist: 360, yaw: 0.35, pitch: 0.5 },
   },
 ];

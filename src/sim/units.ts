@@ -1,7 +1,7 @@
 /** Unit types: who they are, how they fight, what they carry. Numbers are per soldier. */
 import type { Kit } from "../units/soldierMesh";
 
-export type Role = "spear" | "sword" | "axe" | "bow" | "cav" | "hcav" | "hbow" | "general";
+export type Role = "spear" | "sword" | "axe" | "bow" | "cav" | "hcav" | "hbow" | "general" | "ram";
 
 export interface UnitType {
   id: string;
@@ -44,5 +44,6 @@ export const TYPES: Record<string, UnitType> = {
   suiSword: { id: "suiSword", name: "수 도순수", role: "sword", kit: "sword", elite: false, men: 150, files: 38, hp: 11, attack: 8, defence: 7, armour: 6, antiCav: 0, charge: 5, walk: 2.0, run: 4.3, morale: 60, range: 0, ammo: 0, rate: 1.4, mounted: false, desc: "", cost: 0 },
   suiBow: { id: "suiBow", name: "수 궁노수", role: "bow", kit: "bow", elite: false, men: 140, files: 45, hp: 9, attack: 5, defence: 3, armour: 3, antiCav: 0, charge: 2, walk: 2.0, run: 4.2, morale: 52, range: 190, ammo: 26, rate: 6.5, mounted: false, desc: "", cost: 0 },
   suiCav: { id: "suiCav", name: "수 기병", role: "cav", kit: "rider", elite: false, men: 70, files: 18, hp: 16, attack: 10, defence: 7, armour: 7, antiCav: 1, charge: 24, walk: 4.3, run: 11.1, morale: 62, range: 0, ammo: 0, rate: 1.5, mounted: true, desc: "", cost: 0 },
+  suiRam: { id: "suiRam", name: "충차(衝車)", role: "ram", kit: "axe", elite: false, men: 28, files: 4, hp: 12, attack: 9, defence: 3, armour: 5, antiCav: 0, charge: 0, walk: 1.3, run: 1.9, morale: 60, range: 0, ammo: 0, rate: 1.8, mounted: false, desc: "", cost: 0 },
   suiGeneral: { id: "suiGeneral", name: "수 장수 우중문", role: "general", kit: "rider", elite: true, men: 24, files: 8, hp: 26, attack: 12, defence: 9, armour: 11, antiCav: 2, charge: 26, walk: 4.3, run: 10.4, morale: 80, range: 0, ammo: 0, rate: 1.4, mounted: true, desc: "", cost: 0 },
 };
