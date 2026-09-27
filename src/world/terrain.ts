@@ -476,14 +476,35 @@ export function grassMesh(U: WorldUniforms, count = 90000, radius = 95): THREE.M
 
 export function forest(f: Field, max = 9000): THREE.Group {
   const g = new THREE.Group();
-  const pine = new THREE.ConeGeometry(2.6, 9, 7).translate(0, 7.5, 0);
-  const pine2 = new THREE.ConeGeometry(2.0, 6, 7).translate(0, 11.5, 0);
-  const pineGeo = mergeSimple([pine, pine2]);
-  const trunk = new THREE.CylinderGeometry(0.25, 0.4, 4, 5).translate(0, 2, 0);
-  const leafy = new THREE.IcosahedronGeometry(3.6, 1).scale(1, 0.85, 1).translate(0, 7, 0);
+  // Pines (소나무/잣나무): tiers of drooping boughs; broadleaf (참나무): a lumpy crown of three masses.
+  const tiers: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 4; k++) {
+    const r = 2.9 - k * 0.6;
+    const c = new THREE.ConeGeometry(r, 3.8 - k * 0.3, 9, 1, true).translate(0, 5.2 + k * 2.3, 0);
+    // Droop the rim and jitter it so the silhouette isn't a clean cone.
+    const p = c.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y < 5.2 + k * 2.3 - 1) p.setY(i, y - 0.35 * Math.sin(i * 1.7) - 0.3);
+    }
+    c.computeVertexNormals();
+    tiers.push(c);
+  }
+  const pineGeo = mergeSimple(tiers);
+  const trunk = new THREE.CylinderGeometry(0.22, 0.42, 5, 6).translate(0, 2.5, 0);
+  const blobs = [new THREE.SphereGeometry(3.0, 14, 10).translate(0, 7.2, 0), new THREE.SphereGeometry(2.3, 12, 9).translate(1.6, 6.2, 0.6), new THREE.SphereGeometry(2.2, 12, 9).translate(-1.4, 6.5, -0.8)];
+  for (const b of blobs) {
+    const p = b.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const w = 1 + 0.12 * Math.sin(p.getX(i) * 2.1 + p.getY(i) * 1.3) * Math.cos(p.getZ(i) * 1.7);
+      p.setXYZ(i, p.getX(i) * w, p.getY(i) * (0.9 + (w - 1)), p.getZ(i) * w);
+    }
+    b.computeVertexNormals();
+  }
+  const leafy = mergeSimple(blobs);
   const R = rng(f.spec.seed * 3 + 1);
-  const mPine = new THREE.InstancedMesh(pineGeo, new THREE.MeshStandardMaterial({ color: 0x2c4a2a, roughness: 0.95, flatShading: true }), max);
-  const mLeaf = new THREE.InstancedMesh(leafy, new THREE.MeshStandardMaterial({ color: 0x4a6a2a, roughness: 0.9, flatShading: true }), max);
+  const mPine = new THREE.InstancedMesh(pineGeo, new THREE.MeshStandardMaterial({ color: 0x2c4a2a, roughness: 0.95, side: THREE.DoubleSide }), max);
+  const mLeaf = new THREE.InstancedMesh(leafy, new THREE.MeshStandardMaterial({ color: 0x4a6a2a, roughness: 0.9 }), max);
   const mTrunk = new THREE.InstancedMesh(trunk, new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 }), max * 2);
   let np = 0;
   let nl = 0;
@@ -502,7 +523,7 @@ export function forest(f: Field, max = 9000): THREE.Group {
     const sc = 0.7 + R() * 0.8;
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 6.28);
     m4.compose(new THREE.Vector3(x, s.y - 0.3, z), q, new THREE.Vector3(sc, sc * (0.85 + R() * 0.4), sc));
-    col.setHSL(0.22 + R() * 0.08, 0.35 + R() * 0.2, 0.2 + R() * 0.12);
+    col.setHSL(0.24 + R() * 0.07, 0.3 + R() * 0.18, 0.13 + R() * 0.09);
     if (R() < 0.62) {
       mPine.setMatrixAt(np, m4);
       mPine.setColorAt(np++, col);

@@ -278,9 +278,9 @@ vMat = aMat; vLocal = aLocal; vTeam = iPose.y; vFlash = iPose.w; vSeed = iPose.z
         "#include <common>",
         `#include <common>
 varying float vMat; varying vec3 vLocal; varying float vTeam; varying float vFlash; varying float vSeed;
-uniform vec3 uCloth[4]; uniform vec3 uArmour[4]; uniform vec3 uCrest[4]; uniform vec3 uSteel[4];
+uniform vec3 uCloth[7]; uniform vec3 uArmour[7]; uniform vec3 uCrest[7]; uniform vec3 uSteel[7];
 float mRough = 0.8; float mMetal = 0.0;
-vec3 teamPick(vec3 a[4]) { int t = int(vTeam + 0.5); return t == 0 ? a[0] : t == 1 ? a[1] : t == 2 ? a[2] : a[3]; }`,
+vec3 teamPick(vec3 a[7]) { int t = int(vTeam + 0.5); return t == 0 ? a[0] : t == 1 ? a[1] : t == 2 ? a[2] : t == 3 ? a[3] : t == 4 ? a[4] : t == 5 ? a[5] : a[6]; }`,
       )
       .replace(
         "#include <color_fragment>",
@@ -319,12 +319,15 @@ vec3 teamPick(vec3 a[4]) { int t = int(vTeam + 0.5); return t == 0 ? a[0] : t ==
   m.customProgramCacheKey = () => (depth ? "soldier-depth" : "soldier");
 }
 
-/** Team palettes: 0 고구려 (crimson and black), 1 수 (ochre and brown), 2 당 (blue-grey), 3 말갈 (hide). */
+/**
+ * Team palettes: 0 고구려 (crimson and black), 1 수 (ochre and brown), 2 당 (blue-grey),
+ * 3 말갈 (hide and fur), 4 백제 (purple and bronze), 5 신라 (green and gold), 6 거란 (rust and blue).
+ */
 const PALETTES: Record<keyof ArmyPalette, number[]> = {
-  cloth: [0x8a1f1a, 0x9a7a3a, 0x4a566a, 0x6a5a40],
-  armour: [0x2a2624, 0x6a5a3a, 0x5a6270, 0x4a3a2a],
-  crest: [0xc8281e, 0xe0b040, 0xe8e8e8, 0x8a6a3a],
-  steel: [0x8a8a8e, 0x9a9282, 0xa0a4ac, 0x7a746a],
+  cloth: [0x8a1f1a, 0x9a7a3a, 0x4a566a, 0x6a5a40, 0x5a2a6a, 0x2a6a4a, 0x7a4028],
+  armour: [0x2a2624, 0x6a5a3a, 0x5a6270, 0x4a3a2a, 0x4a3a44, 0x5a5238, 0x5a4a3a],
+  crest: [0xc8281e, 0xe0b040, 0xe8e8e8, 0x8a6a3a, 0xd8b050, 0xe8c850, 0x3a6aa0],
+  steel: [0x8a8a8e, 0x9a9282, 0xa0a4ac, 0x7a746a, 0x9a8a70, 0xa89a70, 0x8a8a8a],
 };
 function pal(k: keyof ArmyPalette): THREE.Color[] {
   return PALETTES[k].map((c) => new THREE.Color(c));

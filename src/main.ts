@@ -7,6 +7,9 @@
 import * as THREE from "three";
 import "./style.css";
 import { BattleAudio } from "./audio";
+import { applyBattle, campaignBattle, type CampaignBattle } from "./campaign/battle";
+import { Game, type BattleOutcome, type BattleSetup } from "./campaign/state";
+import { Campaign, hasSave } from "./campaign/ui";
 import { Stage } from "./engine/scene";
 import { SCENARIOS, type Scenario } from "./scenarios";
 import { Ai } from "./sim/ai";
@@ -33,6 +36,9 @@ let scen: Scenario | null = null;
 let speed = 0;
 let started = false;
 let over = false;
+let mode: "title" | "battle" | "campaign" = "title";
+let campaign: Campaign | null = null;
+let campBattle: { cb: CampaignBattle; done: (o: BattleOutcome) => void } | null = null;
 
 const cam = { x: 0, z: 0, dist: 300, yaw: 0, pitch: 0.6 };
 const keys = new Set<string>();
@@ -45,6 +51,7 @@ ui.innerHTML = `
     <div class="mark">高句麗</div>
     <h1>고구려</h1>
     <p class="tag">개마무사의 돌격 · 맥궁의 화살 · 수·당 대군과의 결전</p>
+    <div class="modes"><div class="mtitle">천하(天下) · 전략</div><div id="camps"></div><div class="mtitle">역사 전투</div></div>
     <div id="scens"></div>
     <p class="fine">마우스: 왼쪽 선택 · 오른쪽 명령 · 오른쪽 드래그로 전열 · 휠 확대 · WASD / 가장자리 이동 · Q E 회전</p>
   </div>
@@ -67,10 +74,57 @@ $("scens").innerHTML = SCENARIOS.map(
   (s, i) => `<button class="scen" data-i="${i}"><span class="y">${s.year}</span><b>${s.title}</b><span class="s">${s.sub}</span></button>`,
 ).join("");
 $("scens").querySelectorAll<HTMLButtonElement>(".scen").forEach((b) => (b.onclick = () => brief(SCENARIOS[+b.dataset.i!])));
+function campButtons(): void {
+  $("camps").innerHTML = `
+    ${hasSave() ? `<button class="scen camp" data-c="load"><span class="y">이어서</span><b>저장된 천하</b><span class="s">마지막으로 보낸 해부터</span></button>` : ""}
+    <button class="scen camp" data-c="598"><span class="y">598년 · 영양왕</span><b>수(隋)와의 70년 전쟁</b><span class="s">살수 · 요동 · 천리장성 · 당의 침공</span></button>
+    <button class="scen camp" data-c="642"><span class="y">642년 · 보장왕</span><b>당(唐)과의 결전</b><span class="s">연개소문 · 안시성 · 나당동맹</span></button>`;
+  $("camps").querySelectorAll<HTMLButtonElement>("[data-c]").forEach((b) => (b.onclick = () => startCampaign(b.dataset.c!)));
+}
+campButtons();
+
+function startCampaign(which: string): void {
+  audio.start();
+  const cover = document.createElement("div");
+  cover.id = "loading";
+  cover.innerHTML = `<div><b>天下</b><span>천하를 그리는 중…</span></div>`;
+  ui.appendChild(cover);
+  // Let the cover paint before the map is built.
+  requestAnimationFrame(() => setTimeout(() => {
+    startCampaignNow(which);
+    cover.remove();
+  }, 30));
+}
+function startCampaignNow(which: string): void {
+  const g = which === "load" ? Campaign.load() : Game.create(+which);
+  if (!g) return;
+  stage ??= new Stage(canvas);
+  stage.clearWorld();
+  battle = null;
+  army = null;
+  $("title").classList.add("off");
+  campaign = new Campaign(stage, g, { fight: fightCampaignBattle, toTitle: () => location.reload() });
+  mode = "campaign";
+  campaign.enter();
+  campaign.save();
+}
+
+/** A campaign battle, fought on the field; resolves when the player returns to the map. */
+function fightCampaignBattle(setup: BattleSetup): Promise<BattleOutcome> {
+  return new Promise((done) => {
+    const cb = campaignBattle(campaign!.game, setup);
+    campBattle = { cb, done };
+    mode = "battle";
+    brief(cb.scen);
+    $("bstory").innerHTML = `<p>${cb.scen.sub}</p>`;
+    $("back").style.display = "none";
+  });
+}
 
 function brief(s: Scenario): void {
   audio.start();
   scen = s;
+  if (mode === "title") mode = "battle";
   $("title").classList.add("off");
   $("brief").classList.remove("off");
   $("byear").textContent = s.year;
@@ -93,12 +147,37 @@ $("go").onclick = () => {
   log("북이 울린다. 전투 개시!", "gold");
 };
 $("again").onclick = () => {
+  if (campBattle) return backToCampaign();
   if (!scen) return;
   $("end").classList.add("off");
   brief(scen);
 };
 $("menu").onclick = () => location.reload();
-$("quit").onclick = () => location.reload();
+$("quit").onclick = () => {
+  if (!campBattle) return location.reload();
+  // Sound the retreat: the field is lost, but whoever is still standing comes home.
+  if (battle && battle.result < 0) battle.result = 1;
+  over = true;
+  finish();
+};
+
+function backToCampaign(): void {
+  if (!campBattle || !battle) return;
+  const won = battle.result === 0;
+  const out = applyBattle(campBattle.cb, battle, won);
+  const done = campBattle.done;
+  campBattle = null;
+  $("end").classList.add("off");
+  $("hud").classList.add("off");
+  $("back").style.display = "";
+  stage!.clearWorld();
+  battle = null;
+  army = null;
+  fortView = null;
+  started = false;
+  mode = "campaign";
+  done(out);
+}
 $("snd").onclick = () => {
   audio.muted = !audio.muted;
   $("snd").textContent = audio.muted ? "🔇" : "🔊";
@@ -308,7 +387,7 @@ let mDrag: { x: number; y: number } | null = null;
 let lastRight = 0;
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
-  if (!battle || !started) return;
+  if (!battle || !started || mode !== "battle") return;
   canvas.setPointerCapture(e.pointerId);
   audio.start();
   if (e.button === 0) lDrag = { x: e.clientX, y: e.clientY, moved: false };
@@ -339,7 +418,7 @@ canvas.addEventListener("pointermove", (e) => {
   }
 });
 canvas.addEventListener("pointerup", (e) => {
-  if (!battle) return;
+  if (!battle || mode !== "battle") return;
   if (e.button === 0 && lDrag) {
     if (lDrag.moved) {
       const x0 = Math.min(e.clientX, lDrag.x);
@@ -401,6 +480,7 @@ canvas.addEventListener("pointerup", (e) => {
   } else if (e.button === 1) mDrag = null;
 });
 canvas.addEventListener("wheel", (e) => {
+  if (mode === "campaign") return;
   e.preventDefault();
   cam.dist = Math.max(18, Math.min(1400, cam.dist * Math.exp(e.deltaY * 0.0011)));
 }, { passive: false });
@@ -456,7 +536,7 @@ function flashOrder(p: THREE.Vector3, col: number): void {
 
 window.addEventListener("keydown", (e) => {
   keys.add(e.code);
-  if (!battle || !started) return;
+  if (!battle || !started || mode !== "battle") return;
   if (e.code === "Space") {
     e.preventDefault();
     setSpeed(speed ? 0 : 1);
@@ -495,6 +575,11 @@ function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   t += dt;
+  if (mode === "campaign" && stage && campaign) {
+    campaign.frame(dt, t);
+    stage.render();
+    return;
+  }
   if (stage && field && battle && army && U) {
     // Camera.
     const pan = cam.dist * 0.9 * dt;
@@ -605,7 +690,9 @@ function finish(): void {
   const win = b.result === 0;
   $("hud").classList.add("off");
   $("end").classList.remove("off");
-  $("etitle").textContent = win ? "대승 (大勝)" : "패배";
+  $("etitle").textContent = win ? "대승 (大勝)" : campBattle ? "퇴각" : "패배";
+  $("again").textContent = campBattle ? "천하로 돌아간다" : "다시 싸운다";
+  $("menu").style.display = campBattle ? "none" : "";
   const side = (s: 0 | 1) => {
     let start = 0;
     let alive = 0;
@@ -622,7 +709,7 @@ function finish(): void {
   $("estats").innerHTML = `
     <table><tr><th></th><th>출전</th><th>생존</th><th>전사</th></tr>
     <tr><td>고구려</td><td>${a0}</td><td>${a1}</td><td>${a0 - a1}</td></tr>
-    <tr><td>${scen?.id === "salsu" ? "수" : "당"}</td><td>${e0}</td><td>${e1}</td><td>${e0 - e1}</td></tr></table>
+    <tr><td>${campBattle ? campBattle.cb.foeName : scen?.id === "salsu" ? "수" : "당"}</td><td>${e0}</td><td>${e1}</td><td>${e0 - e1}</td></tr></table>
     ${b.ev.escaped ? `<p>강을 건너 달아난 적: <b>${b.ev.escaped}명</b> (${b.ev.escapedUnits.join(", ")})</p>` : ""}
     <p>전투 시간 ${Math.floor(b.time / 60)}분 ${Math.floor(b.time % 60)}초 · 가장 많이 벤 부대: <b>${best?.name ?? "-"}</b> (${best?.kills ?? 0})</p>
     ${b.field.fort ? `<p>성문: ${b.field.fort.gateHp > 0 ? "버텼다" : "부서졌다"} · 성벽에 오른 적: ${b.ev.walls}명</p>` : ""}
@@ -641,6 +728,14 @@ window.__g = {
   get stage() {
     return stage;
   },
+  get campaign() {
+    return campaign;
+  },
+  get mode() {
+    return mode;
+  },
+  startCampaign,
+  backToCampaign,
   cam,
   brief: (i: number) => brief(SCENARIOS[i]),
   go: () => $("go").click(),

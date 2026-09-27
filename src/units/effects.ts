@@ -94,7 +94,16 @@ export class Dust {
 
 // ------------------------------------------------------------------ standards
 
-function flagTexture(kind: "crow" | "sui" | "tang"): THREE.Texture {
+type FlagKind = "crow" | "sui" | "tang" | "malgal" | "baekje" | "silla" | "khitan";
+const FLAG: Record<string, [string, string, string, string]> = {
+  sui: ["#c8a040", "#2a1a0a", "隋", "#7a2a1a"],
+  tang: ["#3a4a6a", "#e8e8e8", "唐", "#a8b0c0"],
+  malgal: ["#6a5030", "#e8d8b0", "靺", "#3a2a18"],
+  baekje: ["#5a2a6a", "#e8c860", "百", "#d8b050"],
+  silla: ["#2a6a4a", "#f0d860", "新", "#e8c850"],
+  khitan: ["#7a4028", "#d8e0f0", "契", "#3a6aa0"],
+};
+function flagTexture(kind: FlagKind): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = 256;
   c.height = 160;
@@ -141,14 +150,15 @@ function flagTexture(kind: "crow" | "sui" | "tang"): THREE.Texture {
     g.fillRect(0, 0, 256, 8);
     g.fillRect(0, 152, 256, 8);
   } else {
-    g.fillStyle = kind === "sui" ? "#c8a040" : "#3a4a6a";
+    const [bg, fg, ch, band] = FLAG[kind];
+    g.fillStyle = bg;
     g.fillRect(0, 0, 256, 160);
-    g.fillStyle = kind === "sui" ? "#2a1a0a" : "#e8e8e8";
+    g.fillStyle = fg;
     g.font = "900 110px 'Noto Serif KR', serif";
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.fillText(kind === "sui" ? "隋" : "唐", 140, 86);
-    g.fillStyle = kind === "sui" ? "#7a2a1a" : "#a8b0c0";
+    g.fillText(ch, 140, 86);
+    g.fillStyle = band;
     g.fillRect(0, 0, 256, 10);
   }
   const t = new THREE.CanvasTexture(c);
@@ -166,12 +176,12 @@ export class Standards {
     const cloth = new THREE.PlaneGeometry(2.0, 1.25, 16, 6).translate(1.0, 0, 0);
     const kinds = new Map<string, number[]>();
     for (const u of b.units) {
-      const k = u.side === 0 ? "crow" : u.team === 2 ? "tang" : "sui";
+      const k: FlagKind = (["crow", "sui", "tang", "malgal", "baekje", "silla", "khitan"] as FlagKind[])[u.team] ?? "sui";
       if (!kinds.has(k)) kinds.set(k, []);
       kinds.get(k)!.push(u.id);
     }
     for (const [k, units] of kinds) {
-      const mat = new THREE.MeshStandardMaterial({ map: flagTexture(k as "crow"), side: THREE.DoubleSide, roughness: 0.85 });
+      const mat = new THREE.MeshStandardMaterial({ map: flagTexture(k as FlagKind), side: THREE.DoubleSide, roughness: 0.85 });
       mat.onBeforeCompile = (sh) => {
         sh.uniforms.uT = this.time;
         sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nuniform float uT;").replace(
