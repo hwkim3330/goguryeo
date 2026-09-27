@@ -1,0 +1,54 @@
+:root { --red: #8a1f1a; --gold: #e8c070; --ink: #1a0f0c; --paper: #f2e6cc; font-family: "Noto Serif KR", serif; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1a0f0c; user-select: none; }
+#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+#ui { position: fixed; inset: 0; pointer-events: none; color: #f6ecd8; }
+.off { display: none !important; }
+.screen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+#title { background: linear-gradient(90deg, rgba(20, 8, 6, 0.85), rgba(20, 8, 6, 0.25) 60%, transparent); justify-content: flex-start; }
+.hero { margin-left: 7vw; max-width: 560px; }
+.hero .mark { font-family: "Noto Serif KR", serif; font-weight: 900; font-size: 26px; letter-spacing: 0.6em; color: var(--gold); opacity: 0.8; }
+.hero h1 { font-family: "Nanum Brush Script", "Noto Serif KR", serif; font-weight: 400; font-size: 150px; line-height: 1; margin: 6px 0 4px; color: #f6ecd8; text-shadow: 0 6px 30px rgba(0, 0, 0, 0.7), 0 0 60px rgba(160, 30, 20, 0.35); }
+.hero .tag { font-size: 17px; color: #e8d8b8; margin: 0 0 26px; }
+#scens { display: grid; gap: 10px; }
+.scen { display: grid; grid-template-columns: 110px 1fr; grid-template-rows: auto auto; text-align: left; font-family: inherit; color: #f6ecd8; background: rgba(40, 14, 10, 0.72); border: 1px solid rgba(232, 192, 112, 0.45); border-radius: 4px; padding: 12px 18px; cursor: pointer; transition: background 0.2s, transform 0.2s; }
+.scen:hover { background: rgba(138, 31, 26, 0.85); transform: translateX(6px); }
+.scen .y { grid-row: span 2; color: var(--gold); font-size: 14px; align-self: center; }
+.scen b { font-size: 24px; font-weight: 900; }
+.scen .s { font-size: 13px; opacity: 0.75; }
+.fine { font-size: 12px; opacity: 0.7; margin-top: 22px; }
+.scroll { background: linear-gradient(180deg, #f2e6cc, #e6d4ae); color: var(--ink); max-width: 620px; padding: 34px 44px; border-radius: 3px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 0 60px rgba(120, 70, 20, 0.25); border-top: 10px solid var(--red); border-bottom: 10px solid var(--red); }
+.scroll .yr { color: var(--red); font-weight: 600; letter-spacing: 0.2em; }
+.scroll h2 { font-family: "Nanum Brush Script", serif; font-weight: 400; font-size: 72px; margin: 0; line-height: 1.1; }
+.scroll .sub { color: #6a4a30; margin-bottom: 14px; }
+.scroll p { line-height: 1.75; font-size: 16px; margin: 6px 0; }
+.scroll .goal { margin-top: 16px; padding: 10px 14px; background: rgba(138, 31, 26, 0.1); border-left: 4px solid var(--red); font-weight: 600; }
+.scroll button { font-family: inherit; font-size: 18px; font-weight: 900; margin: 20px 10px 0 0; padding: 12px 28px; background: var(--red); color: #fff3dc; border: 0; border-radius: 3px; cursor: pointer; }
+.scroll button.ghost { background: transparent; color: var(--ink); border: 1px solid #8a6a4a; }
+.scroll table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.scroll td, .scroll th { padding: 6px 10px; border-bottom: 1px solid rgba(90, 60, 30, 0.3); text-align: center; }
+#hud { position: absolute; inset: 0; }
+#top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 20px; padding: 10px 16px; background: linear-gradient(180deg, rgba(20, 8, 6, 0.8), transparent); pointer-events: auto; }
+#tname b { font-size: 22px; font-weight: 900; } #tname small { color: var(--gold); margin-left: 6px; }
+#bal { position: relative; flex: 1; max-width: 520px; height: 14px; margin: 0 auto; display: flex; border: 1px solid rgba(232, 192, 112, 0.6); background: #222; }
+#bal i { display: block; height: 100%; transition: width 0.6s; } #balA { background: linear-gradient(90deg, #6a1410, #b8302a); } #balB { background: linear-gradient(90deg, #8a7a5a, #5a5040); }
+#clock { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); font-size: 13px; color: var(--gold); }
+.spd { display: flex; gap: 4px; }
+#hud button { font-family: inherit; font-weight: 600; font-size: 14px; color: #f6ecd8; background: rgba(40, 14, 10, 0.8); border: 1px solid rgba(232, 192, 112, 0.4); border-radius: 3px; padding: 6px 11px; cursor: pointer; pointer-events: auto; }
+#hud button.on { background: var(--red); border-color: var(--gold); }
+#hud kbd { font-size: 10px; opacity: 0.6; margin-left: 4px; }
+#log { position: absolute; left: 16px; top: 64px; display: flex; flex-direction: column; gap: 5px; }
+#log div { background: rgba(20, 8, 6, 0.75); padding: 6px 12px; border-left: 3px solid #8a8a8a; font-size: 14px; transition: opacity 0.8s; }
+#log div.gold { border-color: var(--gold); } #log div.bad { border-color: #e04a3a; } #log div.gone { opacity: 0; }
+#orders { position: absolute; left: 50%; bottom: 122px; transform: translateX(-50%); display: flex; gap: 6px; }
+#cards { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 6px; padding: 10px; background: linear-gradient(0deg, rgba(20, 8, 6, 0.85), transparent); pointer-events: auto; overflow-x: auto; }
+.card { width: 96px; flex: none; background: linear-gradient(180deg, #3a1a14, #22100c); border: 1px solid rgba(232, 192, 112, 0.35); border-radius: 3px; padding: 6px 6px 5px; cursor: pointer; position: relative; }
+.card.sel { border-color: #7affc0; box-shadow: 0 0 12px rgba(122, 255, 192, 0.35); }
+.card.dead { opacity: 0.35; filter: grayscale(1); } .card.rout { animation: blink 0.8s infinite; }
+@keyframes blink { 50% { border-color: #e04a3a; } }
+.card .ic { font-size: 26px; font-weight: 900; text-align: center; color: var(--gold); line-height: 1.2; }
+.card .nm { font-size: 11px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .mn { font-size: 12px; text-align: center; color: #e8d8b8; }
+.card .mo { height: 4px; background: #111; margin: 3px 0 2px; } .card .mo i { display: block; height: 100%; }
+.card .st { font-size: 10px; text-align: center; opacity: 0.75; }
+#box { position: fixed; border: 1px solid #7affc0; background: rgba(122, 255, 192, 0.12); display: none; pointer-events: none; }
+#help { position: absolute; right: 12px; bottom: 124px; font-size: 11px; opacity: 0.6; }
